@@ -363,7 +363,7 @@ int main(int argc, char **argv)
 {
 	int i, opt;
 
-	int width = 4;
+	int width = 1;
 	bool swap = false;
 	char *file = "/dev/mem";
 
