@@ -75,7 +75,7 @@ static unsigned long long strtoull_suffix(const char *str, char **endp, int base
  * 0x1000        -> start = 0x1000, size = ~0
  * 1M+1k         -> start = 0x100000, size = 0x400
  */
-static int parse_area_spec(const char *str, off_t *start, size_t *size)
+static int parse_area_spec(const char *str, off_t *start, size_t *size, int *width)
 {
 	char *endp;
 	off_t end;
@@ -86,6 +86,33 @@ static int parse_area_spec(const char *str, off_t *start, size_t *size)
 	*start = strtoull_suffix(str, &endp, 0);
 
 	str = endp;
+
+	if (*str == '.') {
+		str++;
+		switch (*str) {
+		case 'b':
+			*width = 1;
+			break;
+		case 'w':
+			*width = 2;
+			break;
+		case 'l':
+			*width = 4;
+			break;
+		case 'q':
+			*width = 8;
+			break;
+		default:
+			fprintf(stderr, "bad width\n");
+			return -1;
+		}
+		str++;
+	} else {
+		*width = 1;
+	}
+
+	if (!size)
+		return 0;
 
 	if (!*str) {
 		/* beginning given, but no size, assume maximum size */
@@ -199,16 +226,17 @@ static int memory_display(const void *addr, off_t offs,
 	return 0;
 }
 
-static int cmd_memory_display(int argc, char **argv, int width, bool swap, char *file)
+static int cmd_memory_display(int argc, char **argv, bool swap, char *file)
 {
 	int opt;
 	size_t bufsize, size = 0x100;
 	char *buf;
 	void *handle;
 	off_t start = 0x0;
+	int width;
 
 	if (optind < argc) {
-		if (parse_area_spec(argv[optind], &start, &size)) {
+		if (parse_area_spec(argv[optind], &start, &size, &width)) {
 			fprintf(stderr, "could not parse: %s\n", argv[optind]);
 			return EXIT_FAILURE;
 		}
@@ -261,7 +289,7 @@ static int cmd_memory_display(int argc, char **argv, int width, bool swap, char 
 	return EXIT_SUCCESS;
 }
 
-static int cmd_memory_write(int argc, char *argv[], int width, char *file)
+static int cmd_memory_write(int argc, char *argv[], char *file)
 {
 	off_t adr;
 	size_t bufsize, size;
@@ -269,8 +297,12 @@ static int cmd_memory_write(int argc, char *argv[], int width, char *file)
 	void *handle;
 	int opt;
 	int i, ret;
+	int width;
 
-	adr = strtoull_suffix(argv[optind++], NULL, 0);
+	if (parse_area_spec(argv[optind++], &adr, NULL, &width)) {
+		fprintf(stderr, "could not parse: %s\n", argv[optind]);
+		return EXIT_FAILURE;
+	}
 
 	size = (argc - optind) * width;
 	if (!size)
@@ -338,16 +370,18 @@ static void usage(void)
 	printf(
 "memtool - display and modify memory\n"
 "\n"
-"Usage: memtool [OPTIONS] <START>[+SIZE|-END] [DATA ...]\n"
+"Usage: memtool [OPTIONS] <START>[.WIDTH][+SIZE|-END] [DATA ...]\n"
 "\n"
 "Options:\n"
-"  -b        byte access\n"
-"  -w        word access (16 bit)\n"
-"  -l        long access (32 bit)\n"
-"  -q        quad access (64 bit)\n"
 "  -x        swap bytes at output\n"
 "  -f <FILE> file (default /dev/mem)\n"
 "  -V        print version\n"
+"\n"
+"WIDTH:\n"
+"  b         byte access\n"
+"  w         word access (16 bit)\n"
+"  l         long access (32 bit)\n"
+"  q         quad access (64 bit)\n"
 "\n"
 "Memory regions can be specified in two different forms: START+SIZE\n"
 "or START-END. If START is omitted it defaults to 0x100\n"
@@ -363,24 +397,11 @@ int main(int argc, char **argv)
 {
 	int i, opt;
 
-	int width = 1;
 	bool swap = false;
 	char *file = "/dev/mem";
 
-	while ((opt = getopt(argc, argv, "bwlqxf:hV")) != -1) {
+	while ((opt = getopt(argc, argv, "xf:hV")) != -1) {
 		switch (opt) {
-		case 'b':
-			width = 1;
-			break;
-		case 'w':
-			width = 2;
-			break;
-		case 'l':
-			width = 4;
-			break;
-		case 'q':
-			width = 8;
-			break;
 		case 'x':
 			swap = true;
 			break;
@@ -399,10 +420,10 @@ int main(int argc, char **argv)
 	int args = argc - optind;
 
 	if (args > 1) {
-		return cmd_memory_write(argc, argv, width, file);
+		return cmd_memory_write(argc, argv, file);
 	}
 	else if (args == 1) {
-		return cmd_memory_display(argc, argv, width, swap, file);
+		return cmd_memory_display(argc, argv, swap, file);
 	}
 	else {
 		fprintf(stderr, "Bad number of arguments\n");
